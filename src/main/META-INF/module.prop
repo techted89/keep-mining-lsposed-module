@@ -1,0 +1,8 @@
+name=KeepMining
+version=1
+author=HermesAgent
+description=Keep Bitcoin mining running in background - prevents mining stop on app background/screen off
+minApi=23
+targetApi=36
+scope=com.orangepi.bitcoin
+loadBeforeInit=false
