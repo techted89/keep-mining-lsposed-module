@@ -2,10 +2,11 @@ package com.keep.mining;
 
 import io.github.libxposed.api.XposedModule;
 import io.github.libxposed.api.XposedBridge;
-import io.github.libxposed.api.XposedModule;
+import io.github.libxposed.api.XposedInterface;
 import io.github.libxposed.api.callback.BeforeInvocation;
+import io.github.libxposed.api.callback.BeforeHookCallback;
 import io.github.libxposed.api.Hooker;
-import io.github.libxposed.api.MethodUnhooker;
+import java.lang.reflect.Method;
 
 /**
  * LSPosed module to keep Bitcoin mining running in background.
@@ -23,7 +24,6 @@ public class KeepMiningModule implements XposedModule {
 
     @Override
     public void onPackageLoaded(String packageName) {
-        // Only hook our target package
         if (!packageName.equals("com.orangepi.bitcoin")) {
             return;
         }
@@ -32,7 +32,6 @@ public class KeepMiningModule implements XposedModule {
 
         try {
             // Hook 1: didChangeAppLifecycleState - the main Flutter lifecycle callback
-            // This is called when app goes to background/inactive/paused/hidden
             Class<?> lifecycleServiceClass = framework.findClass("me.carda.awesome_notifications.LifecycleService");
             if (lifecycleServiceClass != null) {
                 hookLifecycleMethods(lifecycleServiceClass);
@@ -58,121 +57,72 @@ public class KeepMiningModule implements XposedModule {
         }
     }
 
-    /**
-     * Hook Flutter LifecycleService lifecycle methods
-     */
     private void hookLifecycleMethods(Class<?> lifecycleServiceClass) {
         try {
-            // Hook didChangeAppLifecycleState method
-            // This is the entry point called by WidgetsBindingObserver
             Method method = framework.findMethod(lifecycleServiceClass, "didChangeAppLifecycleState", "int");
             if (method != null) {
-                Hooker hooker = new XposedHooker();
-                MethodUnhooker unhooker = framework.hook(method, hooker.getClass());
+                framework.hook(method, XposedHooker.class);
                 XposedBridge.log("KeepMiningModule: Hooked didChangeAppLifecycleState");
             }
 
-            // Also hook handleAppLifecycleStateChanged if it exists
             try {
                 Method method2 = framework.findMethod(lifecycleServiceClass, "handleAppLifecycleStateChanged", "int");
                 if (method2 != null) {
-                    Hooker hooker2 = new XposedHooker();
-                    MethodUnhooker unhooker2 = framework.hook(method2, hooker2.getClass());
+                    framework.hook(method2, XposedHooker.class);
                     XposedBridge.log("KeepMiningModule: Hooked handleAppLifecycleStateChanged");
                 }
-            } catch (Exception e) {
-                // Method may not exist
-            }
-
+            } catch (Exception ignored) {}
         } catch (Exception e) {
             XposedBridge.log("KeepMiningModule: Error hooking lifecycle methods - " + e.getMessage());
         }
     }
 
-    /**
-     * Hook MiningService methods that control mining stop
-     */
     private void hookMiningServiceMethods(Class<?> miningServiceClass) {
         try {
-            // Hook the stopMining method
             Method stopMethod = framework.findMethod(miningServiceClass, "stopMining", "(Landroid/content/Context;)V");
             if (stopMethod != null) {
-                Hooker hooker = new XposedHooker();
-                MethodUnhooker unhooker = framework.hook(stopMethod, hooker.getClass());
-                XposedBridge.log("KeepMiningModule: Hooked MiningService.stopMining");
+                framework.hook(stopMethod, XposedHooker.class);
+                XposedBridge.log("KeepMiningModule: Hooked MiningService.stopMining(Context)");
             }
 
-            // Hook any method containing "stopMining" 
             try {
                 Method miningStopMethod = framework.findMethod(miningServiceClass, "stopMining", "()V");
                 if (miningStopMethod != null) {
-                    Hooker hooker = new XposedHooker();
-                    MethodUnhooker unhooker = framework.hook(miningStopMethod, hooker.getClass());
+                    framework.hook(miningStopMethod, XposedHooker.class);
                     XposedBridge.log("KeepMiningModule: Hooked MiningService.stopMining()");
                 }
-            } catch (Exception e) {
-                // Method signature may vary
-            }
-
+            } catch (Exception ignored) {}
         } catch (Exception e) {
             XposedBridge.log("KeepMiningModule: Error hooking MiningService methods - " + e.getMessage());
         }
     }
 
-    /**
-     * Hook _stopMiningIfNeeded logic in MiningController
-     */
     private void hookStopMiningIfNeeded(Class<?> miningControllerClass) {
         try {
-            // Hook _stopMiningIfNeeded method
             Method stopMethod = framework.findMethod(miningControllerClass, "_stopMiningIfNeeded", "()V");
             if (stopMethod != null) {
-                Hooker hooker = new XposedHooker();
-                MethodUnhooker unhooker = framework.hook(stopMethod, hooker.getClass());
+                framework.hook(stopMethod, XposedHooker.class);
                 XposedBridge.log("KeepMiningModule: Hooked MiningController._stopMiningIfNeeded");
             }
 
-            // Also hook any method with "stopMining" in name
             try {
                 for (Method m : miningControllerClass.getMethods()) {
-                    if (m.getName().toLowerCase().contains("stopmining") || m.getName().toLowerCase().contains("stop_mining")) {
-                        Hooker hooker = new XposedHooker();
-                        MethodUnhooker unhooker = framework.hook(m, hooker.getClass());
+                    String name = m.getName().toLowerCase();
+                    if (name.contains("stopmining") || name.contains("stop_mining")) {
+                        framework.hook(m, XposedHooker.class);
                         XposedBridge.log("KeepMiningModule: Hooked method: " + m.getName());
                     }
                 }
-            } catch (Exception e) {
-                // Iteration may fail
-            }
-
+            } catch (Exception ignored) {}
         } catch (Exception e) {
             XposedBridge.log("KeepMiningModule: Error hooking stop mining methods - " + e.getMessage());
         }
     }
 
-    /**
-     * Modern Hooker class annotated with @XposedHooker
-     * Handles before-invocation callbacks to block mining stop
-     */
-    public static class XposedHooker implements Hooker {
-        
+    public static class XposedHooker {
         @BeforeInvocation
         public static void before(BeforeHookCallback callback) {
-            // This callback runs before the hooked method
-            // We can block the mining stop by returning and skipping
-            // The callback is for the method being hooked
-            // We set a flag to indicate we want to skip/block
-            callback.setResult(null);
-            // Don't call proceed() - this effectively blocks the original method
-            // The framework will not execute the original method
-        }
-
-        @BeforeInvocation
-        public static void beforeBlockMining(BeforeHookCallback callback) {
-            // Specific callback for mining stop blocking
-            // We want to completely block mining stop execution
             callback.returnAndSkip(null);
-            // This tells the framework to skip the original method entirely
         }
     }
 }
